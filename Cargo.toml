@@ -1,10 +1,17 @@
 [package]
 name = "bevy_meshopt"
-description = "Small wrapper around the `meshopt` library for using with Bevy!"
-authors = ["aceeri (conmcclusk@gmail.com)"]
 version = "0.1.0"
-repository = "https://github.com/aceeri/bevy_meshopt"
+description = "Small wrapper around the `meshopt` library for using with Bevy!"
+authors = ["Connor McCluskey <conmcclusk@gmail.com>"]
 edition = "2024"
+exclude = ["assets/", ".github/"]
+categories = ["game-engines", "graphics", "rendering"]
+keywords = ["bevy", "mesh", "optimization", "simplification"]
+repository = "https://github.com/aceeri/bevy_meshopt"
+documentation = "https://docs.rs/bevy_meshopt"
+license = "MIT OR Apache-2.0"
+rust-version = "1.88.0"
+readme = "README.md"
 
 [dependencies]
 bevy = { version = "0.17", default-features = false, features = [ "bevy_mesh" ] }
