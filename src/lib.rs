@@ -1,12 +1,17 @@
 use std::{error::Error, fmt::Display};
 
 use bevy::mesh::{Indices, Mesh, PrimitiveTopology, VertexAttributeValues};
+use bytemuck::cast_slice;
+
+pub use meshopt::clusterize::Meshlets;
 
 pub use meshopt::SimplifyOptions;
 
 pub trait MeshExt {
     /// Assert that the mesh has u32 indices, replaces if it is u16.
     fn assert_indices_u32(&mut self);
+    /// Run cache → overdraw → fetch optimization in sequence.
+    fn optimize_full(&mut self, overdraw_threshold: f32) -> Result<(), OptError>;
     /// [`meshopt::simplify`] but returns the new indices and error.
     #[must_use]
     fn simplify_new_indices(&self, params: &SimplifyParams) -> Result<(Vec<u32>, f32), OptError>;
@@ -18,6 +23,13 @@ pub trait MeshExt {
     fn optimize_overdraw(&mut self, threshold: f32) -> Result<(), OptError>;
     /// [`meshopt::optimize_vertex_cache`]
     fn optimize_vertex_cache(&mut self) -> Result<(), OptError>;
+    /// Build meshlets for the mesh (TriangleList topology required).
+    fn meshlets(
+        &self,
+        max_vertices: usize,
+        max_triangles: usize,
+        cone_weight: f32,
+    ) -> Result<Meshlets, OptError>;
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -70,13 +82,14 @@ impl Default for SimplifyParams<'_> {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Clone)]
 pub enum OptError {
     MissingIndices,
     UnsupportedIndexFormat,
     MissingPositions,
     UnsupportedPrimitiveTopology(PrimitiveTopology),
     InvalidIndexCount(usize),
+    Meshopt(String),
 }
 
 impl Display for OptError {
@@ -91,6 +104,7 @@ impl Display for OptError {
                 topology
             ),
             OptError::InvalidIndexCount(count) => write!(f, "Invalid index count: {}", count),
+            OptError::Meshopt(msg) => write!(f, "meshopt error: {}", msg),
         }
     }
 }
@@ -180,6 +194,12 @@ impl MeshExt for Mesh {
         assert_u32_indices(self.indices_mut());
     }
 
+    fn optimize_full(&mut self, overdraw_threshold: f32) -> Result<(), OptError> {
+        self.optimize_vertex_cache()?;
+        self.optimize_overdraw(overdraw_threshold)?;
+        self.optimize_vertex_fetch()
+    }
+
     fn simplify(&mut self, params: &SimplifyParams) -> Result<f32, OptError> {
         let (new_indices, error) = self.simplify_new_indices(params)?;
         if new_indices.len() >= 3 {
@@ -266,5 +286,30 @@ impl MeshExt for Mesh {
         let mut indices_mut = mesh_indices_mut(self)?;
         meshopt::optimize_vertex_cache_in_place(&mut indices_mut, positions_len);
         Ok(())
+    }
+
+    fn meshlets(
+        &self,
+        max_vertices: usize,
+        max_triangles: usize,
+        cone_weight: f32,
+    ) -> Result<Meshlets, OptError> {
+        let indices = mesh_indices(self)?;
+        let positions = mesh_positions(self)?;
+
+        let adapter = meshopt::VertexDataAdapter::new(
+            cast_slice(positions.as_slice()),
+            std::mem::size_of::<[f32; 3]>(),
+            0,
+        )
+        .map_err(|e| OptError::Meshopt(e.to_string()))?;
+
+        Ok(meshopt::clusterize::build_meshlets(
+            indices,
+            &adapter,
+            max_vertices,
+            max_triangles,
+            cone_weight,
+        ))
     }
 }
